@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!--        https://livenow14.tistory.com/64-->
+<!--        https://ckddn9496.tistory.com/76?category=428336-->
+
+<configuration>
+    <!-- 기본 설정 -->
+    <include resource="org/springframework/boot/logging/logback/default.xml"/>
+
+    <!-- property 이름과 해당 이름에 대한 패턴 지정 -->
+    <property name="CONSOLE_PATTERN" value="%clr(%d{yyyy-MM-dd HH:mm:ss.SSS, Asia/Seoul}){faint} %clr(${LOG_LEVEL_PATTERN:-%5p}) [${java.rmi.server.hostname:-127.0.0.1}] [${nd.hostname:-localhost}] %clr(${PID:- }){magenta} %clr(---){faint} %clr([%15.15t]){faint} %clr(%-40.40logger{39}){cyan} %clr([%class{5} > %method:%line]){magenta} %clr(:){faint} %m %marker%n${LOG_EXCEPTION_CONVERSION_WORD:-%wEx}"/>
+    <property name="FILE_PATTERN" value="%d{yyyy-MM-dd HH:mm:ss.SSS, Asia/Seoul} ${LOG_LEVEL_PATTERN:-%5p} ${PID:- } --- [%t] %-40.40logger{39} [%class{5} > %method:%line] : %m %marker%n${LOG_EXCEPTION_CONVERSION_WORD:-%wEx}"/>
+    <property name="LOG_FILE" value="${LOG_FILE:-spring}"/>
+
+    <!--properties에 따른 이름과 속성 지정 -->
+    <springProperty name="SPRING_PROFILES_ACTIVE" source="spring.profiles.active"/>
+    <springProperty name="SPRING_APPLICATION_NAME" source="spring.application.name"/>
+    <springProperty name="KAFKA_APPENDER_BOOTSTRAP_SERVERS" source="joongna.kafka-appender.bootstrap-servers" />
+
+    <!-- 프로파일에 따른 로그파일 지정 경로 설정 -->
+    <springProfile name="local">
+        <property name="LOG_PATH" value="${LOG_PATH:-${user.home}/logs}"/>
+    </springProfile>
+
+
+    <!-- appender마다 각기 다른 LOGGER를 설정 및 부착 -> 로그 이벤트를 작성하는 작업-->
+    <!--ch.qos.logback.core에는 LOGGER를 설정하는 클래스들이 있음 -->
+    <!-- system.out 시 패턴 -->
+    <appender name="CONSOLE_APPENDER" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>${CONSOLE_PATTERN}</pattern>
+            <charset>utf8</charset>
+        </encoder>
+    </appender>
+
+    <!--파일에 로그 이벤트를 append 함 -> 동적 파일 생성 가능 -->
+    <!--RollingFileAppender: 특정 시점을 기준으로 타겟 파일을 바꿈 -> 다른 로그파일을 생성하여 기록 -->
+    <appender name="FILE_APPENDER" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_PATH}/${LOG_FILE}.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_PATH}/old/${LOG_FILE}-%d{yyyyMMdd-HH}.%i.log.gz</fileNamePattern>
+            <maxHistory>720</maxHistory>
+            <maxFileSize>300MB</maxFileSize>
+        </rollingPolicy>
+        <encoder>
+            <pattern>${FILE_PATTERN}</pattern>
+            <charset>utf8</charset>
+        </encoder>
+    </appender>
+
+
+    <!-- kafka appender 추가 부분  -->
+    <appender name="JSON_KAFKA_APPENDER" class="com.github.danielwegener.logback.kafka.KafkaAppender">
+        <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+            <providers>
+                <logstashMarkers/>
+                <mdc/>
+                <pattern>
+                    <pattern>
+                        {
+                        "timestamp": "%d{yyyy-MM-dd'T'HH:mm:ss.SSSZ}",
+                        "severity": "%level",
+                        "service": "${SPRING_APPLICATION_NAME:-}",
+                        "profiles": "${SPRING_PROFILES_ACTIVE:-}",
+                        "serverIp": "${java.rmi.server.hostname:-127.0.0.1}",
+                        "hostName": "${nd.hostname:-localhost}",
+                        "pid": "${PID:-}",
+                        "thread": "%t",
+                        "class": "%-40.40logger{39} [%class{5} > %method:%line]",
+                        "message": "%m%n${LOG_EXCEPTION_CONVERSION_WORD:-%wEx}"
+                        }
+                    </pattern>
+                </pattern>
+            </providers>
+        </encoder>
+        <topic>${SPRING_APPLICATION_NAME}</topic>
+        <keyingStrategy class="com.github.danielwegener.logback.kafka.keying.NoKeyKeyingStrategy"/>
+        <deliveryStrategy class="com.github.danielwegener.logback.kafka.delivery.AsynchronousDeliveryStrategy"/>
+        <!-- Optional parameter to use a fixed partition -->
+        <!-- <partition>0</partition> -->
+        <!-- Optional parameter to include log timestamps into the kafka message -->
+        <!-- <appendTimestamp>true</appendTimestamp> -->
+        <!-- each <producerConfig> translates to regular kafka-client config (format: key=value) -->
+        <!-- producer configs are documented here: https://kafka.apache.org/documentation.html#newproducerconfigs -->
+        <!-- bootstrap.servers is the only mandatory producerConfig -->
+        <!-- <producerConfig>bootstrap.servers=localhost:19092,localhost:29092,localhost:39092</producerConfig> -->
+        <producerConfig>bootstrap.servers=${KAFKA_APPENDER_BOOTSTRAP_SERVERS}</producerConfig>
+        <producerConfig>acks=0</producerConfig>
+        <producerConfig>linger.ms=100</producerConfig>
+        <producerConfig>max.block.ms=100</producerConfig>
+        <!-- this is the fallback appender if kafka is not available. -->
+        <appender-ref ref="FILE_APPENDER"/>
+    </appender>
+
+
+    <!-- profile에 따른 설정 최소 한개의 root를 갖는다.-->
+    <!-- configuration은 안에 최소 1개의 root를 갖고 0개이상의 appender, logger를 갖음-->
+    <springProfile name="local">
+        <!--기본 설정 -> 출력-->
+        <!--<appender-ref ref="STDOUT"></appender-ref>-->
+
+        <!--kafka appender로 설정-->
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+            <appender-ref ref="JSON_KAFKA_APENDER"/>
+        </root>
+    </springProfile>
+
+    <!-- profile live-->
+    <springProfile name="live">
+
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+            <appender-ref ref="JSON_KAFKA_APPENDER"/>
+        </root>
+    </springProfile>
+
+
+
+</configuration>
